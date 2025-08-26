@@ -1,0 +1,13 @@
+/Users/joseruiz/Desktop/proyecto1/target/debug/deps/proyecto1-f5d94ac7923ed03d.d: src/main.rs src/line.rs src/framebuffer.rs src/maze.rs src/caster.rs src/player.rs src/texture.rs src/sprites.rs src/taylor_sprite.rs
+
+/Users/joseruiz/Desktop/proyecto1/target/debug/deps/libproyecto1-f5d94ac7923ed03d.rmeta: src/main.rs src/line.rs src/framebuffer.rs src/maze.rs src/caster.rs src/player.rs src/texture.rs src/sprites.rs src/taylor_sprite.rs
+
+src/main.rs:
+src/line.rs:
+src/framebuffer.rs:
+src/maze.rs:
+src/caster.rs:
+src/player.rs:
+src/texture.rs:
+src/sprites.rs:
+src/taylor_sprite.rs:
