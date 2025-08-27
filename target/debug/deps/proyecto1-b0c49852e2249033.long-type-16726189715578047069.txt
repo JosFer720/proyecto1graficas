@@ -1,1 +1,0 @@
-raylib::prelude::Vector2: From<{integer}>
