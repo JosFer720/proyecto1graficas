@@ -1,4 +1,3 @@
-// src/framebuffer.rs
 use raylib::prelude::*;
 
 pub struct Framebuffer {
@@ -44,14 +43,8 @@ impl Framebuffer {
         self.color_buffer.export_image(file_path);
     }
 
-    pub fn swap_buffers(
-        &self,
-        window: &mut RaylibHandle,
-        raylib_thread: &RaylibThread,
-    ) {
-        if let Ok(texture) = window.load_texture_from_image(raylib_thread, &self.color_buffer) {
-            let mut renderer = window.begin_drawing(raylib_thread);
-            renderer.draw_texture(&texture, 0, 0, Color::WHITE);
-        }
+    pub fn get_texture(&self, window: &mut RaylibHandle, raylib_thread: &RaylibThread) -> Result<Texture2D, String> {
+        window.load_texture_from_image(raylib_thread, &self.color_buffer)
+            .map_err(|_| "Failed to create texture".to_string())
     }
 }

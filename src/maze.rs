@@ -1,4 +1,3 @@
-// src/maze.rs
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 
@@ -22,7 +21,6 @@ pub fn load_maze(filename: &str) -> Maze {
         Err(e) => {
             println!("Error cargando {}: {}", filename, e);
             println!("Usando maze de fallback...");
-            // Maze de fallback
             vec![
                 "+++++++++++++++++".chars().collect(),
                 "+  .    +     . +".chars().collect(),
@@ -35,14 +33,12 @@ pub fn load_maze(filename: &str) -> Maze {
     }
 }
 
-// Función para extraer posiciones de sprites desde el maze
 pub fn extract_sprite_positions(maze: &Maze, block_size: usize) -> Vec<SpritePosition> {
     let mut sprite_positions = Vec::new();
     
     for (row_index, row) in maze.iter().enumerate() {
         for (col_index, &cell) in row.iter().enumerate() {
             if cell == '.' {
-                // Calcular la posición central del bloque
                 let x = (col_index * block_size) as f32 + (block_size as f32 / 2.0);
                 let y = (row_index * block_size) as f32 + (block_size as f32 / 2.0);
                 
@@ -56,12 +52,11 @@ pub fn extract_sprite_positions(maze: &Maze, block_size: usize) -> Vec<SpritePos
     sprite_positions
 }
 
-// Función para limpiar el maze (convertir '.' a ' ' después de extraer posiciones)
 pub fn clean_maze(maze: &mut Maze) {
     for row in maze.iter_mut() {
         for cell in row.iter_mut() {
             if *cell == '.' {
-                *cell = ' '; // Convertir a espacio vacío
+                *cell = ' '; 
             }
         }
     }

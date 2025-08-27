@@ -1,5 +1,3 @@
-// src/main.rs - Tom Hiddleston's Great Escape Game
-mod line;
 mod framebuffer;
 mod maze;
 mod caster;
@@ -7,10 +5,10 @@ mod player;
 mod texture;
 mod sprites;
 mod taylor_sprite;
+mod taylor_ai;
 
-use line::line;
 use maze::{Maze, load_maze, extract_sprite_positions, clean_maze};
-use caster::{cast_ray, render_world_with_textures_sprites_and_taylor};
+use caster::render_world_with_textures_sprites_and_taylor;
 use framebuffer::Framebuffer;
 use player::{Player, process_events};
 use texture::TextureManager;
@@ -23,6 +21,7 @@ use std::io::BufReader;
 use std::thread;
 use std::time::Duration;
 use std::f32::consts::PI;
+use taylor_ai::TaylorAI;
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum GameState {
@@ -51,32 +50,33 @@ pub struct GameData {
     pub taylor_target: Vector2,
     pub taylor_last_move_time: f32,
     pub car_reached: bool,
+    pub taylor_ai: TaylorAI,
 }
 
 impl GameData {
     fn new() -> Self {
         let levels = vec![
             GameLevel {
-                maze_file: "mazes/level1.txt".to_string(),
+                maze_file: "levels/level1.txt".to_string(),
                 level_name: "Hollywood Studio".to_string(),
                 required_cans: 4,
-                taylor_speed: 2.0,
-                taylor_spawn_x: 250.0,  // Posición dentro del mapa
-                taylor_spawn_y: 950.0,
-            },
-            GameLevel {
-                maze_file: "mazes/level2.txt".to_string(),
-                level_name: "Recording Studio".to_string(),
-                required_cans: 4,
-                taylor_speed: 2.5,
+                taylor_speed: 2.6, 
                 taylor_spawn_x: 250.0,
                 taylor_spawn_y: 950.0,
             },
             GameLevel {
-                maze_file: "mazes/level3.txt".to_string(),
+                maze_file: "levels/level2.txt".to_string(),
+                level_name: "Recording Studio".to_string(),
+                required_cans: 4,
+                taylor_speed: 3.25, 
+                taylor_spawn_x: 250.0,
+                taylor_spawn_y: 950.0,
+            },
+            GameLevel {
+                maze_file: "levels/level3.txt".to_string(),
                 level_name: "Concert Venue".to_string(),
                 required_cans: 4,
-                taylor_speed: 3.0,
+                taylor_speed: 3.9,
                 taylor_spawn_x: 250.0,
                 taylor_spawn_y: 1150.0,
             },
@@ -91,6 +91,7 @@ impl GameData {
             taylor_target: Vector2::new(800.0, 800.0),
             taylor_last_move_time: 0.0,
             car_reached: false,
+            taylor_ai: TaylorAI::new(),
         }
     }
 
@@ -125,201 +126,27 @@ fn update_taylor_ai(
     block_size: usize,
     delta_time: f32,
 ) {
-    // Obtener los valores necesarios antes de cualquier mutación
     let taylor_speed = game_data.get_current_level().taylor_speed;
     let current_level_index = game_data.current_level;
     
-    game_data.taylor_last_move_time += delta_time;
-
-    let update_frequency = match current_level_index {
-        0 => 2.0,  
-        1 => 1.5,  
-        2 => 1.0,  
+    let speed_multiplier = match current_level_index {
+        0 => 1.1,   
+        1 => 1.3,   
+        2 => 1.6,   
         _ => 1.0,
     };
-
-    if game_data.taylor_last_move_time >= update_frequency {
-        let prediction_time = 1.0;
-        let predicted_x = player.pos.x + (player.a.cos() * 50.0 * prediction_time);
-        let predicted_y = player.pos.y + (player.a.sin() * 50.0 * prediction_time);
-        
-        game_data.taylor_target = Vector2::new(predicted_x, predicted_y);
-        game_data.taylor_last_move_time = 0.0;
-    }
-
-    let dx = game_data.taylor_target.x - game_data.taylor_position.x;
-    let dy = game_data.taylor_target.y - game_data.taylor_position.y;
-    let distance = (dx * dx + dy * dy).sqrt();
-
-    if distance > 5.0 {
-        let speed_multiplier = match current_level_index {
-            0 => 1.0,   
-            1 => 1.2,   
-            2 => 1.5,   
-            _ => 1.0,
-        };
-        
-        let effective_speed = taylor_speed * speed_multiplier;
-        let move_x = (dx / distance) * effective_speed * delta_time * 60.0;
-        let move_y = (dy / distance) * effective_speed * delta_time * 60.0;
-
-        let new_x = game_data.taylor_position.x + move_x;
-        let new_y = game_data.taylor_position.y + move_y;
-
-        if is_valid_position(maze, new_x, game_data.taylor_position.y, block_size) {
-            game_data.taylor_position.x = new_x;
-        }
-        if is_valid_position(maze, game_data.taylor_position.x, new_y, block_size) {
-            game_data.taylor_position.y = new_y;
-        }
-
-        if distance < 10.0 && game_data.taylor_last_move_time > 5.0 {
-            for _ in 0..10 {
-                let angle = (game_data.game_timer * 2.0) % (2.0 * PI);
-                let dist = 200.0 + (game_data.game_timer % 1.0) * 300.0;
-                let new_x = player.pos.x + angle.cos() * dist;
-                let new_y = player.pos.y + angle.sin() * dist;
-                
-                if is_valid_position(maze, new_x, new_y, block_size) {
-                    game_data.taylor_position.x = new_x;
-                    game_data.taylor_position.y = new_y;
-                    break;
-                }
-            }
-        }
-    }
-}
-
-fn is_valid_position(maze: &Maze, x: f32, y: f32, block_size: usize) -> bool {
-    let grid_x = (x / block_size as f32) as usize;
-    let grid_y = (y / block_size as f32) as usize;
     
-    if grid_y >= maze.len() || grid_x >= maze[0].len() {
-        return false;
-    }
+    let effective_speed = taylor_speed * speed_multiplier;
     
-    maze[grid_y][grid_x] == ' '
+    game_data.taylor_ai.update_ai(
+        &mut game_data.taylor_position,
+        player,
+        maze,
+        block_size,
+        delta_time,
+        effective_speed,
+    );
 }
-
-fn check_taylor_collision(game_data: &GameData, player: &Player) -> bool {
-    let dx = game_data.taylor_position.x - player.pos.x;
-    let dy = game_data.taylor_position.y - player.pos.y;
-    let distance = (dx * dx + dy * dy).sqrt();
-    
-    let capture_distance = match game_data.current_level {
-        0 => 50.0,  
-        1 => 45.0,  
-        2 => 40.0,  
-        _ => 50.0,
-    };
-    
-    distance < capture_distance
-}
-
-fn render_minimap_with_entities(
-    framebuffer: &mut Framebuffer,
-    maze: &Maze,
-    player: &Player,
-    game_data: &GameData,
-    sprite_manager: &SpriteManager,
-    minimap_size: usize,
-    block_size: usize,
-) {
-    let map_rows = maze.len();
-    let map_cols = maze[0].len();
-    let scale_x = minimap_size as f32 / (map_cols * block_size) as f32;
-    let scale_y = minimap_size as f32 / (map_rows * block_size) as f32;
-    let offset_x = framebuffer.width as usize - minimap_size - 10;
-    let offset_y = 10;
-
-    framebuffer.set_current_color(Color::new(20, 20, 20, 255));
-    for x in offset_x..offset_x + minimap_size {
-        for y in offset_y..offset_y + minimap_size {
-            if x < framebuffer.width as usize && y < framebuffer.height as usize {
-                framebuffer.set_pixel(x as u32, y as u32);
-            }
-        }
-    }
-
-    for (row_index, row) in maze.iter().enumerate() {
-        for (col_index, &cell) in row.iter().enumerate() {
-            if cell != ' ' {
-                let x = offset_x + ((col_index * block_size) as f32 * scale_x) as usize;
-                let y = offset_y + ((row_index * block_size) as f32 * scale_y) as usize;
-                let cell_width = (block_size as f32 * scale_x) as usize;
-                let cell_height = (block_size as f32 * scale_y) as usize;
-                
-                framebuffer.set_current_color(Color::GRAY);
-                for dx in 0..cell_width {
-                    for dy in 0..cell_height {
-                        let px = x + dx;
-                        let py = y + dy;
-                        if px < framebuffer.width as usize && py < framebuffer.height as usize {
-                            framebuffer.set_pixel(px as u32, py as u32);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    sprite_manager.render_minimap_sprites(framebuffer, maze, minimap_size, block_size);
-
-    let px = offset_x as f32 + player.pos.x * scale_x;
-    let py = offset_y as f32 + player.pos.y * scale_y;
-    if px >= offset_x as f32 && px < (offset_x + minimap_size) as f32 
-       && py >= offset_y as f32 && py < (offset_y + minimap_size) as f32 {
-        framebuffer.set_current_color(Color::GREEN);
-        let radius = 3;
-        for dy in -(radius as i32)..=(radius as i32) {
-            for dx in -(radius as i32)..=(radius as i32) {
-                if dx * dx + dy * dy <= radius * radius {
-                    let x = (px as i32 + dx) as u32;
-                    let y = (py as i32 + dy) as u32;
-                    if x < framebuffer.width && y < framebuffer.height {
-                        framebuffer.set_pixel(x, y);
-                    }
-                }
-            }
-        }
-    }
-
-    let tx = offset_x as f32 + game_data.taylor_position.x * scale_x;
-    let ty = offset_y as f32 + game_data.taylor_position.y * scale_y;
-    if tx >= offset_x as f32 && tx < (offset_x + minimap_size) as f32 
-       && ty >= offset_y as f32 && ty < (offset_y + minimap_size) as f32 {
-        framebuffer.set_current_color(Color::RED);
-        let radius = 4;
-        for dy in -(radius as i32)..=(radius as i32) {
-            for dx in -(radius as i32)..=(radius as i32) {
-                if dx * dx + dy * dy <= radius * radius {
-                    let x = (tx as i32 + dx) as u32;
-                    let y = (ty as i32 + dy) as u32;
-                    if x < framebuffer.width && y < framebuffer.height {
-                        framebuffer.set_pixel(x, y);
-                    }
-                }
-            }
-        }
-    }
-
-    framebuffer.set_current_color(Color::WHITE);
-    for thickness in 0..2 {
-        for x in offset_x..offset_x + minimap_size {
-            if x < framebuffer.width as usize {
-                framebuffer.set_pixel(x as u32, (offset_y + thickness) as u32);
-                framebuffer.set_pixel(x as u32, (offset_y + minimap_size - 1 - thickness) as u32);
-            }
-        }
-        for y in offset_y..offset_y + minimap_size {
-            if y < framebuffer.height as usize {
-                framebuffer.set_pixel((offset_x + thickness) as u32, y as u32);
-                framebuffer.set_pixel((offset_x + minimap_size - 1 - thickness) as u32, y as u32);
-            }
-        }
-    }
-}
-
 fn start_level(
     maze: &mut Maze,
     sprite_manager: &mut SpriteManager,
@@ -342,6 +169,8 @@ fn start_level(
     game_data.taylor_position = Vector2::new(level.taylor_spawn_x, level.taylor_spawn_y);
     game_data.taylor_target = game_data.taylor_position;
     
+    game_data.taylor_ai = TaylorAI::new();
+    
     if let Ok(game_file) = File::open("audio/getaway_car.mp3") {
         if let Ok(game_source) = Decoder::new(BufReader::new(game_file)) {
             let sink = Sink::try_new(stream_handle).unwrap();
@@ -353,9 +182,28 @@ fn start_level(
     }
 }
 
+
+fn check_taylor_collision(game_data: &GameData, player: &Player) -> bool {
+    const TAYLOR_RADIUS: f32 = 25.0;
+    const PLAYER_RADIUS: f32 = 15.0;
+    
+    let dx = game_data.taylor_position.x - player.pos.x;
+    let dy = game_data.taylor_position.y - player.pos.y;
+    let distance = (dx * dx + dy * dy).sqrt();
+    
+    let collision_distance = TAYLOR_RADIUS + PLAYER_RADIUS + match game_data.current_level {
+        0 => 10.0,
+        1 => 5.0,
+        2 => 0.0,
+        _ => 10.0,
+    };
+    
+    distance < collision_distance
+}
+
 fn main() {
-    let window_width = 1000;
-    let window_height = 650;
+    let window_width = 1280;
+    let window_height = 720;
     let block_size = 100;
 
     let (mut window, raylib_thread) = raylib::init()
@@ -365,6 +213,26 @@ fn main() {
         .build();
 
     window.hide_cursor();
+    window.disable_cursor();
+
+    println!("Buscando controles...");
+    for gamepad_id in 0..8 { 
+        println!("Probando gamepad {}: {}", gamepad_id, window.is_gamepad_available(gamepad_id));
+        if window.is_gamepad_available(gamepad_id) {
+            println!("Control {} detectado: {:?}", gamepad_id, window.get_gamepad_name(gamepad_id));
+        }
+    }
+
+
+    if window.is_gamepad_available(1) {
+        if let Some(name) = window.get_gamepad_name(1) {
+            println!("Control detectado: {}", name);
+        } else {
+            println!("Control detectado pero sin nombre");
+        }
+    } else {
+        println!("No se detectó ningún control");
+    }
 
     let mut framebuffer = Framebuffer::new(window_width as u32, window_height as u32);
     framebuffer.set_background_color(Color::new(10, 10, 30, 255));
@@ -405,69 +273,76 @@ fn main() {
                 
                 d.draw_text(
                     "TOM HIDDLESTON'S GREAT ESCAPE",
-                    window_width / 2 - 200,
-                    80,
-                    24,
+                    window_width / 2 - 400,
+                    150,
+                    48,
                     Color::WHITE,
                 );
                 
                 d.draw_text(
                     "¡Escapa de Taylor Swift!",
-                    window_width / 2 - 120,
-                    130,
-                    16,
+                    window_width / 2 - 200,
+                    220,
+                    28,
                     Color::YELLOW,
                 );
                 
                 d.draw_text(
                     "SELECCIONA NIVEL:",
-                    window_width / 2 - 80,
-                    180,
-                    18,
+                    window_width / 2 - 140,
+                    300,
+                    32,
                     Color::GREEN,
                 );
                 
                 d.draw_text(
                     "1 - Hollywood Studio (Fácil)",
-                    window_width / 2 - 120,
-                    220,
-                    16,
+                    window_width / 2 - 200,
+                    360,
+                    24,
                     Color::WHITE,
                 );
                 
                 d.draw_text(
                     "2 - Recording Studio (Medio)",
-                    window_width / 2 - 120,
-                    250,
-                    16,
+                    window_width / 2 - 210,
+                    400,
+                    24,
                     Color::WHITE,
                 );
                 
                 d.draw_text(
                     "3 - Concert Venue (Difícil)",
-                    window_width / 2 - 120,
-                    280,
-                    16,
+                    window_width / 2 - 190,
+                    440,
+                    24,
                     Color::WHITE,
                 );
                 
                 d.draw_text(
                     "WASD - Moverse, Mouse - Mirar",
-                    window_width / 2 - 100,
-                    330,
-                    12,
+                    window_width / 2 - 180,
+                    520,
+                    20,
                     Color::LIGHTGRAY,
                 );
                 
                 d.draw_text(
                     "E - Abrir puerta (con 3 bidones)",
-                    window_width / 2 - 100,
-                    350,
-                    12,
+                    window_width / 2 - 190,
+                    550,
+                    20,
                     Color::LIGHTGRAY,
                 );
-            
-                // Selección de nivel
+
+                d.draw_text(
+                    "Gamepad: O-Nivel1, △-Nivel2, □-Nivel3",
+                    window_width / 2 - 200,
+                    580,
+                    20,
+                    Color::LIGHTGRAY,
+                );
+                            
                 if d.is_key_pressed(KeyboardKey::KEY_ONE) {
                     game_data.current_level = 0;
                     state = GameState::Playing;
@@ -482,6 +357,24 @@ fn main() {
                     game_data.current_level = 2;
                     state = GameState::Playing;
                     start_level(&mut maze, &mut sprite_manager, &mut game_data, &mut player, block_size, &stream_handle, &mut current_sink);
+                }
+
+                if d.is_gamepad_available(0) {
+                    if d.is_gamepad_button_pressed(0, GamepadButton::GAMEPAD_BUTTON_RIGHT_FACE_RIGHT) {
+                        game_data.current_level = 0;
+                        state = GameState::Playing;
+                        start_level(&mut maze, &mut sprite_manager, &mut game_data, &mut player, block_size, &stream_handle, &mut current_sink);
+                    }
+                    if d.is_gamepad_button_pressed(0, GamepadButton::GAMEPAD_BUTTON_RIGHT_FACE_UP) { 
+                        game_data.current_level = 1;
+                        state = GameState::Playing;
+                        start_level(&mut maze, &mut sprite_manager, &mut game_data, &mut player, block_size, &stream_handle, &mut current_sink);
+                    }
+                    if d.is_gamepad_button_pressed(0, GamepadButton::GAMEPAD_BUTTON_RIGHT_FACE_LEFT) { 
+                        game_data.current_level = 2;
+                        state = GameState::Playing;
+                        start_level(&mut maze, &mut sprite_manager, &mut game_data, &mut player, block_size, &stream_handle, &mut current_sink);
+                    }
                 }
             }
 
@@ -513,17 +406,25 @@ fn main() {
                     }
                     continue;
                 }
-            
+
                 process_events(&mut player, &window, &maze, block_size);
                 
-                const MOUSE_SENSITIVITY: f32 = 0.005;
-                let mouse_delta_x = window.get_mouse_delta().x;
-                player.a += mouse_delta_x * MOUSE_SENSITIVITY;
+                let mouse_delta = window.get_mouse_delta();
+                const MOUSE_SENSITIVITY: f32 = 0.003;
+                player.a += mouse_delta.x * MOUSE_SENSITIVITY;
+
+                if window.is_gamepad_available(0) {
+                    let right_stick_x = window.get_gamepad_axis_movement(0, GamepadAxis::GAMEPAD_AXIS_RIGHT_X);
+                    if right_stick_x.abs() > 0.2 {
+                        player.a += right_stick_x * 0.05; 
+                    }
+                }
+
                 if player.a < 0.0 { player.a += 2.0 * PI; }
                 else if player.a > 2.0 * PI { player.a -= 2.0 * PI; }
-            
+
                 sprite_manager.update(delta_time);
-            
+
                 if let Some(_) = sprite_manager.check_collision(&player, 30.0) {
                     game_data.gasoline_collected += 1;
                     
@@ -539,14 +440,14 @@ fn main() {
                     }
                     
                     println!("¡Gasolina recolectada! {}/{}", 
-                             game_data.gasoline_collected, 
-                             game_data.get_current_level().required_cans);
+                            game_data.gasoline_collected, 
+                            game_data.get_current_level().required_cans);
                 }
-            
-                // Verificar si puede abrir la puerta
+
                 if game_data.gasoline_collected >= game_data.get_current_level().required_cans {
-                    if window.is_key_down(KeyboardKey::KEY_E) {
-                        let car_pos = Vector2::new(6400.0, 150.0); // Posición de la E en los mapas grandes
+                    if window.is_key_down(KeyboardKey::KEY_E) || 
+                    (window.is_gamepad_available(0) && window.is_gamepad_button_down(0, GamepadButton::GAMEPAD_BUTTON_RIGHT_FACE_DOWN)) {
+                        let car_pos = Vector2::new(6400.0, 150.0);
                         let dx = player.pos.x - car_pos.x;
                         let dy = player.pos.y - car_pos.y;
                         let distance = (dx * dx + dy * dy).sqrt();
@@ -576,147 +477,62 @@ fn main() {
                         }
                     }
                 }
-            
-                // USAR SOLO RAYLIB PARA RENDERIZAR
-                let mut d = window.begin_drawing(&raylib_thread);
-                d.clear_background(Color::new(20, 20, 40, 255));
-                
-                // Dibujar un mundo 3D simple
-                let num_rays = 200; // Más rayos para mejor calidad
-                let hh = window_height as f32 / 2.0;
-                
-                for i in 0..num_rays {
-                    let current_ray = i as f32 / num_rays as f32;
-                    let a = player.a - (player.fov / 2.0) + (player.fov * current_ray);
-                    let intersect = cast_ray(&mut framebuffer, &maze, &player, a, block_size, false);
-                    
-                    if intersect.impact != ' ' {
-                        let corrected_distance = intersect.distance * (a - player.a).cos();
-                        let distance_to_projection_plane = 250.0;
-                        let stake_height = (hh / corrected_distance) * distance_to_projection_plane;
-                        let stake_top = (hh - (stake_height / 2.0)).max(0.0) as i32;
-                        let stake_bottom = (hh + (stake_height / 2.0)).min(window_height as f32) as i32;
-                        
-                        let x = (i as f32 * (window_width as f32 / num_rays as f32)) as i32;
-                        
-                        // Color basado en la distancia
-                        let color_intensity = (255.0 * (1.0 - (corrected_distance / 500.0))).max(50.0) as u8;
-                        let wall_color = Color::new(color_intensity, color_intensity / 2, 0, 255);
-                        
-                        // Dibujar columna de pared
-                        d.draw_line(x, stake_top, x, stake_bottom, wall_color);
-                    }
-                }
 
-                                // Dibujar la salida (E) con color especial
-                for (row_index, row) in maze.iter().enumerate() {
-                    for (col_index, &cell) in row.iter().enumerate() {
-                        if cell == 'E' {
-                            let exit_x = (col_index * block_size) as f32 + (block_size as f32 / 2.0);
-                            let exit_y = (row_index * block_size) as f32 + (block_size as f32 / 2.0);
-                            
-                            let dx = exit_x - player.pos.x;
-                            let dy = exit_y - player.pos.y;
-                            let distance = (dx * dx + dy * dy).sqrt();
-                            
-                            if distance > 50.0 && distance < 400.0 {
-                                let angle_to_exit = dy.atan2(dx);
-                                let angle_diff = angle_to_exit - player.a;
-                                let normalized_angle = ((angle_diff + PI) % (2.0 * PI)) - PI;
-                                
-                                if normalized_angle.abs() < player.fov / 2.0 {
-                                    let screen_x = window_width / 2 + (normalized_angle * window_width as f32 / player.fov) as i32;
-                                    let exit_size = (60.0 / distance * 120.0) as i32;
-                                    
-                                    let exit_color = if game_data.gasoline_collected >= game_data.get_current_level().required_cans {
-                                        Color::GREEN
-                                    } else {
-                                        Color::DARKGRAY
-                                    };
-                                    
-                                    d.draw_rectangle(screen_x - exit_size/2, window_height / 2 - exit_size/2, exit_size, exit_size, exit_color);
-                                }
-                            }
-                        }
-                    }
+                render_world_with_textures_sprites_and_taylor(
+                    &mut framebuffer,
+                    &maze,
+                    block_size,
+                    &player,
+                    &texture_manager,
+                    &sprite_manager,
+                    &taylor_sprite,
+                    game_data.taylor_position,
+                );
+
+                let framebuffer_texture = framebuffer.get_texture(&mut window, &raylib_thread);
+
+                let mut d = window.begin_drawing(&raylib_thread);
+                d.clear_background(Color::BLACK);
+                
+                if let Ok(texture) = &framebuffer_texture {
+                    d.draw_texture(texture, 0, 0, Color::WHITE);
                 }
                 
-                // Dibujar sprites (bidones de gasolina)
-                for sprite in &sprite_manager.sprites {
-                    if !sprite.collected {
-                        let dx = sprite.x - player.pos.x;
-                        let dy = sprite.y - player.pos.y;
-                        let distance = (dx * dx + dy * dy).sqrt();
-                        
-                        if distance > 50.0 && distance < 400.0 {
-                            let angle_to_sprite = dy.atan2(dx);
-                            let angle_diff = angle_to_sprite - player.a;
-                            let normalized_angle = ((angle_diff + PI) % (2.0 * PI)) - PI;
-                            
-                            if normalized_angle.abs() < player.fov / 2.0 {
-                                let screen_x = window_width / 2 + (normalized_angle * window_width as f32 / player.fov) as i32;
-                                let sprite_size = (50.0 / distance * 100.0) as i32;
-                                
-                                d.draw_circle(screen_x, window_height / 2, sprite_size as f32, Color::ORANGE);
-                            }
-                        }
-                    }
-                }
-                
-                // Dibujar Taylor Swift
-                if taylor_distance > 50.0 && taylor_distance < 600.0 {
-                    let angle_to_taylor = dy.atan2(dx);
-                    let angle_diff = angle_to_taylor - player.a;
-                    let normalized_angle = ((angle_diff + PI) % (2.0 * PI)) - PI;
-                    
-                    if normalized_angle.abs() < player.fov / 2.0 {
-                        let screen_x = window_width / 2 + (normalized_angle * window_width as f32 / player.fov) as i32;
-                        let taylor_size = (80.0 / taylor_distance * 150.0) as i32;
-                        
-                        let taylor_color = if taylor_distance < 100.0 { Color::DARKRED } else { Color::RED };
-                        d.draw_circle(screen_x, window_height / 2, taylor_size as f32, taylor_color);
-                    }
-                }
-                
-                // UI del juego
                 d.draw_text(
                     &format!("Nivel: {}", game_data.get_current_level().level_name),
-                    10, 10, 16, Color::WHITE,
+                    20, 20, 28, Color::WHITE,
                 );
                 
                 d.draw_text(
                     &format!("Gasolina: {}/{}", 
-                             game_data.gasoline_collected, 
-                             game_data.get_current_level().required_cans),
-                    10, 30, 16, Color::YELLOW,
+                            game_data.gasoline_collected, 
+                            game_data.get_current_level().required_cans),
+                    20, 55, 28, Color::YELLOW,
                 );
                 
                 d.draw_text(
                     &format!("Tiempo: {:.1}s", game_data.game_timer),
-                    10, 50, 16, Color::WHITE,
+                    20, 90, 28, Color::WHITE,
                 );
                 
                 if taylor_distance < 150.0 {
                     d.draw_text(
                         "¡TAYLOR ESTÁ CERCA!",
-                        window_width / 2 - 100, 100,
-                        20, Color::RED,
+                        window_width / 2 - 200, 160,
+                        36, Color::RED,
                     );
                 }
                 
-                // MINIMAPA
-                let minimap_size = 150;
+                let minimap_size = 300;
                 let map_rows = maze.len();
                 let map_cols = maze[0].len();
                 let scale_x = minimap_size as f32 / (map_cols * block_size) as f32;
                 let scale_y = minimap_size as f32 / (map_rows * block_size) as f32;
-                let offset_x = window_width - minimap_size - 10;
-                let offset_y = 10;
-            
-                // Fondo minimapa
+                let offset_x = window_width - minimap_size - 20;
+                let offset_y = 20;
+
                 d.draw_rectangle(offset_x, offset_y, minimap_size, minimap_size, Color::new(0, 0, 0, 150));
-            
-                // Paredes en minimapa
+
                 for (row_index, row) in maze.iter().enumerate() {
                     for (col_index, &cell) in row.iter().enumerate() {
                         if cell != ' ' {
@@ -728,41 +544,40 @@ fn main() {
                         }
                     }
                 }
-            
-                // Bidones en minimapa
+
                 for sprite in &sprite_manager.sprites {
                     if !sprite.collected {
                         let sx = offset_x + (sprite.x * scale_x) as i32;
                         let sy = offset_y + (sprite.y * scale_y) as i32;
-                        d.draw_circle(sx, sy, 3.0, Color::ORANGE);
+                        d.draw_circle(sx, sy, 6.0, Color::ORANGE);
                     }
                 }
-            
-                // Taylor en minimapa
+
+                let exit_x = offset_x + (6400.0 * scale_x) as i32;
+                let exit_y = offset_y + (150.0 * scale_y) as i32;
+                d.draw_rectangle(exit_x - 8, exit_y - 8, 16, 16, Color::BLUE);
+                d.draw_text("E", exit_x - 4, exit_y - 6, 12, Color::WHITE);
+
+
                 let tx = offset_x + (game_data.taylor_position.x * scale_x) as i32;
                 let ty = offset_y + (game_data.taylor_position.y * scale_y) as i32;
-                d.draw_circle(tx, ty, 4.0, Color::RED);
-            
-                // Jugador en minimapa
+                d.draw_circle(tx, ty, 8.0, Color::RED);
+
                 let px = offset_x + (player.pos.x * scale_x) as i32;
                 let py = offset_y + (player.pos.y * scale_y) as i32;
-                d.draw_circle(px, py, 3.0, Color::GREEN);
-            
-                // Borde minimapa
-                d.draw_rectangle_lines_ex(Rectangle::new(offset_x as f32, offset_y as f32, minimap_size as f32, minimap_size as f32), 2.0, Color::WHITE);
-            
-                // FPS
-                d.draw_fps(10, window_height - 30);
-            
-                // Instrucciones
-                d.draw_text("WASD para moverse", 10, window_height - 60, 12, Color::LIGHTGRAY);
+                d.draw_circle(px, py, 6.0, Color::GREEN);
+
+                d.draw_rectangle_lines_ex(Rectangle::new(offset_x as f32, offset_y as f32, minimap_size as f32, minimap_size as f32), 3.0, Color::WHITE);
+
+                d.draw_fps(20, window_height - 60);
+
+                d.draw_text("WASD para moverse", 20, window_height - 120, 24, Color::LIGHTGRAY);
                 
-                // Instrucción para abrir puerta
                 if game_data.gasoline_collected >= game_data.get_current_level().required_cans {
                     d.draw_text(
                         "¡Presiona E cerca de la salida para escapar!",
-                        window_width / 2 - 150, 160,
-                        16, Color::GREEN,
+                        window_width / 2 - 300, 240,
+                        28, Color::GREEN,
                     );
                 }
             }
@@ -773,20 +588,26 @@ fn main() {
                 
                 d.draw_text(
                     "¡NIVEL COMPLETO!",
-                    window_width / 2 - 100, 200,
-                    24, Color::GREEN,
+                    window_width / 2 - 200,
+                    window_height / 2 - 140,
+                    48,
+                    Color::GREEN,
                 );
                 
                 d.draw_text(
                     &format!("Tiempo: {:.1} segundos", game_data.game_timer),
-                    window_width / 2 - 80, 250,
-                    16, Color::WHITE,
+                    window_width / 2 - 160,
+                    window_height / 2 - 70,
+                    28,
+                    Color::WHITE,
                 );
                 
                 d.draw_text(
                     "Presiona ESPACIO para continuar",
-                    window_width / 2 - 120, 300,
-                    16, Color::YELLOW,
+                    window_width / 2 - 200,
+                    window_height / 2,
+                    28,
+                    Color::YELLOW,
                 );
 
                 if d.is_key_pressed(KeyboardKey::KEY_SPACE) {
@@ -820,20 +641,26 @@ fn main() {
                 
                 d.draw_text(
                     "¡GAME OVER!",
-                    window_width / 2 - 80, 200,
-                    24, Color::RED,
+                    window_width / 2 - 160,
+                    window_height / 2 - 140,
+                    48,
+                    Color::RED,
                 );
                 
                 d.draw_text(
                     "¡Taylor Swift te atrapó!",
-                    window_width / 2 - 90, 250,
-                    16, Color::WHITE,
+                    window_width / 2 - 180,
+                    window_height / 2 - 70,
+                    28,
+                    Color::WHITE,
                 );
                 
                 d.draw_text(
                     "Presiona R para reintentar",
-                    window_width / 2 - 90, 300,
-                    16, Color::YELLOW,
+                    window_width / 2 - 160,
+                    window_height / 2,
+                    28,
+                    Color::YELLOW,
                 );
 
                 if d.is_key_pressed(KeyboardKey::KEY_R) {
@@ -866,20 +693,26 @@ fn main() {
                 
                 d.draw_text(
                     "¡FELICIDADES!",
-                    window_width / 2 - 100, 200,
-                    24, Color::GREEN,
+                    window_width / 2 - 200,
+                    window_height / 2 - 140,
+                    48,
+                    Color::GREEN,
                 );
                 
                 d.draw_text(
                     "¡Tom Hiddleston escapó exitosamente!",
-                    window_width / 2 - 150, 250,
-                    16, Color::WHITE,
+                    window_width / 2 - 280,
+                    window_height / 2 - 70,
+                    28,
+                    Color::WHITE,
                 );
                 
                 d.draw_text(
                     "Presiona ESC para salir",
-                    window_width / 2 - 80, 300,
-                    16, Color::YELLOW,
+                    window_width / 2 - 140,
+                    window_height / 2,
+                    28,
+                    Color::YELLOW,
                 );
 
                 if d.is_key_pressed(KeyboardKey::KEY_ESCAPE) {

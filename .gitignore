@@ -1,0 +1,30 @@
+# Archivos y directorios generados por Cargo
+/target/
+/Cargo.lock
+**/*.rs.bk
+
+# Archivos de compilación temporales
+*.o
+*.so
+*.rlib
+*.dll
+*.dylib
+*.a
+*.exe
+
+# Archivos de depuración
+*.pdb
+
+# Archivos de IDEs y editores comunes
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Archivos de sistema
+.DS_Store
+Thumbs.db
+
+# Archivos de logs y cachés
+*.log
+.cache/
